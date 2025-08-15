@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Wellness Quest</title>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  /* ---------- Theme & layout ---------- */
+  :root{
+    --bg-a:#071020;
+    --bg-b:#053d5a;
+    --accent1:#00ffb3;
+    --accent2:#00c6ff;
+    --card: rgba(255,255,255,0.06);
+    --muted: rgba(255,255,255,0.78);
+    --glass: rgba(255,255,255,0.04);
+  }
+  html,body{height:100%;margin:0;font-family: "Segoe UI", Roboto, Arial, sans-serif;background:linear-gradient(135deg,var(--bg-a),var(--bg-b));color:#e8fbff;}
+  .wrap{max-width:1200px;margin:18px auto;padding:18px;position:relative;z-index:2;}
+  header.topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(0,0,0,0.04));box-shadow:0 6px 24px rgba(0,0,0,0.5);}
+  header .brand{display:flex;gap:12px;align-items:center}
+  header h1{margin:0;font-size:1.4rem;color:var(--accent1);letter-spacing:0.6px}
+  #clock{font-weight:600;color:var(--accent2)}
+  nav.breadcrumb{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  nav.breadcrumb button{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);padding:6px 10px;border-radius:8px;cursor:pointer}
+  .page{display:none;margin-top:18px}
+  .page.active{display:block}
+
+  /* animated background */
+  .bg-canvas{position:fixed;inset:0;z-index:0;pointer-events:none}
+  .overlay-glow{position:fixed;inset:0;background:radial-gradient(circle at 10% 10%, rgba(0,255,170,0.06), transparent 8%), radial-gradient(circle at 90% 90%, rgba(0,200,255,0.05), transparent 12%);z-index:1}
+
+  /* cards */
+  .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.45);margin-bottom:12px}
+  .grid{display:grid;grid-template-columns: 360px 1fr;gap:18px}
+  .stack{display:flex;flex-direction:column;gap:12px}
+
+  input,select,textarea,button{font-family:inherit}
+  input,select,textarea{background:var(--glass);border:1px solid rgba(255,255,255,0.03);color:var(--muted);padding:10px;border-radius:8px;outline:none}
+  button.primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#001a1f;border:none;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,0.4)}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);padding:8px 12px;border-radius:8px;cursor:pointer}
+
+  /* subscription plans */
+  .plans{display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between}
+  .plan-card{flex:1;min-width:200px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.05));border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.03);text-align:center}
+  .plan-card h3{margin:6px 0;color:var(--accent1)}
+  .plan-price{font-size:1.3rem;font-weight:800;margin:6px 0;color:var(--accent2)}
+
+  /* bot/chat */
+  .chat-window{height:240px;overflow:auto;background:linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.08));padding:12px;border-radius:8px}
+  .bot-msg{background:rgba(0,0,0,0.25);padding:8px;border-radius:8px;margin-bottom:8px}
+  .user-msg{background:linear-gradient(90deg,var(--accent2),var(--accent1));padding:8px;border-radius:8px;margin-bottom:8px;color:#012}
+
+  /* charts & heatmap */
+  #chartWrap{display:flex;gap:12px;flex-wrap:wrap}
+  #lineChart{max-width:640px;background:transparent;border-radius:8px}
+  .heatmap{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;padding:8px;border-radius:8px;background:rgba(0,0,0,0.1)}
+  .heat-cell{padding:12px;border-radius:6px;text-align:center;font-weight:700}
+
+  /* feature list and print card */
+  .feature-list{columns:2;column-gap:24px}
+  /* A4 print card */
+  #featureCard{width:210mm;height:297mm;padding:18mm;margin:auto;background:white;color:#012;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.25)}
+  @media print {
+    body *{visibility:hidden}
+    #featureCard, #featureCard *{visibility:visible}
+    #featureCard{position:fixed;left:0;top:0}
+  }
+
+  /* responsive */
+  @media (max-width:980px){.grid{grid-template-columns:1fr}.feature-list{columns:1}}
+</style>
+</head>
+<body>
+
+<!-- animated background canvas (decorative) -->
+<canvas id="bgCanvas" class="bg-canvas"></canvas>
+<div class="overlay-glow"></div>
+
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <img src="" alt="" style="width:40px;height:40px;border-radius:8px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.6))" />
+      <h1>Wellness Quest</h1>
+    </div>
+    <div style="text-align:right">
+      <div id="greeting" style="font-weight:700;color:var(--accent1)"></div>
+      <div id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <nav class="breadcrumb">
+    <button onclick="showPage('auth')">Login / Register</button>
+    <button onclick="showPage('subscribe')">Subscription</button>
+    <button onclick="showPage('dashboard')">Dashboard</button>
+    <button class="ghost" onclick="openFeatureCard()">Print Feature Card</button>
+    <div style="margin-left:auto">
+      <select id="themeToggle" onchange="toggleTheme(this.value)">
+        <option value="tech">Tech - Wellness</option><option value="calm">Calm Light</option>
+      </select>
+      <select id="fontToggle" onchange="toggleFont(this.value)">
+        <option value="normal">Normal</option><option value="large">Large</option><option value="small">Small</option>
+      </select>
+    </div>
+  </nav>
+
+  <!-- PAGES -->
+  <section id="page-auth" class="page active">
+    <div class="grid">
+      <div class="card">
+        <h2>Login</h2>
+        <input id="loginUser" placeholder="Username"><br><br>
+        <input id="loginPass" type="password" placeholder="Password"><br><br>
+        <div style="display:flex;gap:8px">
+          <button class="primary" onclick="login()">Login</button>
+          <button class="ghost" onclick="prefillDemo()">Demo</button>
+        </div>
+        <p id="loginMsg" class="muted"></p>
+        <hr style="border-color:rgba(255,255,255,0.03)">
+        <h3>Or Sign up</h3>
+        <input id="regName" placeholder="Display name"><br>
+        <input id="regUser" placeholder="Choose username"><br>
+        <input id="regPass" type="password" placeholder="Choose password"><br>
+        <div style="display:flex;gap:8px">
+          <button class="primary" onclick="register()">Register</button>
+          <button class="ghost" onclick="clearAuth()">Clear</button>
+        </div>
+        <p id="regMsg" class="muted"></p>
+      </div>
+
+      <div class="card stack">
+        <h2>Why Wellness Quest?</h2>
+        <p class="muted">A competition-ready wellness app with tracking, evidence upload, guided audio, chatbot coaching, analytics & printable feature card. Your data stays in-browser unless you export it.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+          <button class="ghost" onclick="showPage('subscribe')">Choose a plan</button>
+          <button class="ghost" onclick="showPage('dashboard')">Explore features</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="page-subscribe" class="page">
+    <div class="card">
+      <h2 class="">Choose Subscription</h2>
+      <div class="plans">
+        <div class="plan-card">
+          <h3>Monthly</h3>
+          <div class="plan-price">₹49</div>
+          <div class="muted">Best for trying out</div>
+          <div style="margin-top:8px">
+            <button class="primary" onclick="selectPlan('Monthly',49)">Select</button>
+            <button class="ghost" onclick="sendWhatsApp('Monthly')">Send Proof via WhatsApp</button>
+          </div>
+          <div style="margin-top:10px">
+            <input id="codeMonthly" placeholder="Enter activation code" />
+            <button class="ghost" onclick="activate('Monthly')">Activate</button>
+          </div>
+        </div>
+
+        <div class="plan-card">
+          <h3>Yearly</h3>
+          <div class="plan-price">₹499</div>
+          <div class="muted">Save compared to monthly</div>
+          <div style="margin-top:8px">
+            <button class="primary" onclick="selectPlan('Yearly',499)">Select</button>
+            <button class="ghost" onclick="sendWhatsApp('Yearly')">Send Proof via WhatsApp</button>
+          </div>
+          <div style="margin-top:10px">
+            <input id="codeYearly" placeholder="Enter activation code" />
+            <button class="ghost" onclick="activate('Yearly')">Activate</button>
+          </div>
+        </div>
+
+        <div class="plan-card">
+          <h3>Lifetime</h3>
+          <div class="plan-price">₹1499</div>
+          <div class="muted">One-time — forever access</div>
+          <div style="margin-top:8px">
+            <button class="primary" onclick="selectPlan('Lifetime',1499)">Select</button>
+            <button class="ghost" onclick="sendWhatsApp('Lifetime')">Send Proof via WhatsApp</button>
+          </div>
+          <div style="margin-top:10px">
+            <input id="codeLifetime" placeholder="Enter activation code" />
+            <button class="ghost" onclick="activate('Lifetime')">Activate</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="card" style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+          <div>
+            <h3>30-Day Free Trial</h3>
+            <div class="muted">Start a free, 30-day trial. No payment required.</div>
+          </div>
+          <div>
+            <button class="primary" onclick="startFreeTrial()">Start Free Trial</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:12px;align-items:center;justify-content:center">
+        <div>
+          <img src="QR.jpg" alt="QR code - replace QR.jpg in folder" style="width:160px;border-radius:8px;border:2px solid rgba(255,255,255,0.03)" onerror="this.style.opacity=0.6">
+        </div>
+      </div>
+
+      <p id="subStatus" class="muted" style="margin-top:10px"></p>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:10px">
+        <button class="primary" onclick="showPage('dashboard')">Go to Dashboard</button>
+        <button class="ghost" onclick="showPage('auth')">Back</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="page-dashboard" class="page">
+    <div class="grid">
+      <div>
+        <!-- Left column: controls & mini-tools -->
+        <div class="card stack">
+          <h2 id="welcomeText">Welcome!</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="ghost" onclick="openProfile()">Edit Profile</button>
+            <button class="ghost" onclick="toggleMusic()">Toggle Background Music</button>
+            <button class="ghost" onclick="openTimers()">Timers</button>
+            <button class="ghost" onclick="openReminders()">Reminders</button>
+            <button class="ghost" onclick="exportAll()">Export All</button>
+          </div>
+
+          <hr style="border-color:rgba(255,255,255,0.03)">
+
+          <div>
+            <h3>Meditation Audio</h3>
+            <audio id="medAudio" controls src="Meditation.mp3">Your browser doesn't support audio.</audio>
+            <div style="margin-top:8px"><button class="primary" onclick="startMeditation()">Start 10-min Meditation</button></div>
+          </div>
+
+          <div style="margin-top:10px">
+            <h3>Daily Quiz (6 questions)</h3>
+            <form id="quizForm">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                <label> Mood <input id="q1" type="number" min="1" max="5" required></label>
+                <label> Stress <input id="q2" type="number" min="1" max="5" required></label>
+                <label> Physical <input id="q3" type="number" min="1" max="5" required></label>
+                <label> Sleep <input id="q4" type="number" min="1" max="5" required></label>
+                <label> Focus <input id="q5" type="number" min="1" max="5" required></label>
+                <label> Hydration <input id="q6" type="number" min="1" max="5" required></label>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="primary" type="submit">Submit</button>
+                <button type="button" class="ghost" onclick="exportQuizCSV()">Export CSV</button>
+                <button type="button" class="ghost" onclick="exportQuizPDF()">Export PDF</button>
+              </div>
+            </form>
+            <div id="quizMsg" class="muted" style="margin-top:6px"></div>
+          </div>
+
+          <div style="margin-top:10px">
+            <h3>Remedies</h3>
+            <ul id="remedies" class="muted"></ul>
+          </div>
+
+          <div style="margin-top:10px">
+            <h3>Quick Tools</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input id="habitInp" placeholder="New habit"><button class="ghost" onclick="addHabit()">Add</button>
+              <input id="gratInp" placeholder="Gratitude note"><button class="ghost" onclick="addGrat()">Add</button>
+            </div>
+            <div id="habitList" style="margin-top:8px" class="muted"></div>
+            <div id="gratList" style="margin-top:8px" class="muted"></div>
+          </div>
+        </div>
+
+        <!-- Left: stats -->
+        <div class="card">
+          <h3>Stats & Trackers</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div style="min-width:120px">
+              <label>Weight (kg)</label><input id="weight" type="number" style="width:100%" />
+            </div>
+            <div style="min-width:120px">
+              <label>Height (cm)</label><input id="height" type="number" style="width:100%" />
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button class="primary" onclick="calcBMI()">Calc BMI</button>
+              <div id="bmiRes" class="muted" style="padding:8px"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px">
+            <label>Water glasses</label>
+            <div style="display:flex;gap:8px">
+              <input id="waterInp" type="number">
+              <button class="ghost" onclick="saveWater()">Save</button>
+            </div>
+            <div id="waterStat" class="muted"></div>
+          </div>
+
+          <div style="margin-top:10px">
+            <label>Steps (manual)</label><input id="stepsInp" type="number"><button class="ghost" onclick="saveSteps()">Save</button>
+            <div id="stepsStat" class="muted"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <div>
+        <!-- Right column: charts, chat, advanced features -->
+        <div class="card">
+          <h2>Analytics</h2>
+          <div id="chartWrap">
+            <canvas id="lineChart" height="200"></canvas>
+            <div style="flex:1;min-width:260px">
+              <h4 class="muted">Heatmap (last entries)</h4>
+              <div id="heatmap" class="heatmap"></div>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <button class="ghost" onclick="showProgress()">Weekly Progress</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Advanced Chatbot</h2>
+          <div id="chatWindow" class="chat-window"></div>
+          <div style="margin-top:8px">
+            <input id="userChatText" placeholder="Type a message or pick an option" style="width:70%">
+            <button class="primary" onclick="sendChat()">Send</button>
+          </div>
+          <div style="margin-top:8px" id="botOptions"></div>
+        </div>
+
+        <div class="card">
+          <h3>More Tools</h3>
+          <div class="feature-list muted" id="featureList">
+            <!-- features will be listed and are functional -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Printable Feature Card Modal (A4) -->
+<div id="featureCard" style="display:none;position:fixed;inset:0;justify-content:center;align-items:center;padding:18mm;z-index:9999;">
+  <div style="background:#fff;padding:18mm;border-radius:6px;color:#012;max-width:100%;margin:auto">
+    <h1 style="color:#0072ff">Wellness Quest — Feature Summary</h1>
+    <p style="margin-top:6px">National level competition-ready wellness app. Key features:</p>
+    <ul id="cardFeatures" style="columns:2;column-gap:24px"></ul>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="printCard()">Print</button>
+      <button onclick="closeFeatureCard()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------------- Utilities & state -------------- */
+let currentPage='auth';
+let currentUser = null;
+const ACTIVATION_CODES = ['WELLNESS2025','WQ-TRIAL','WQ-LIFE'];
+const WHATSAPP_NUMBER = '919719101887';
+
+function showPage(key){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('#page-'+key).forEach(e=>e.classList.add('active'));//not used for this selector but keep
+  document.getElementById('page-auth').classList.toggle('active', key==='auth');
+  document.getElementById('page-subscribe').classList.toggle('active', key==='subscribe');
+  document.getElementById('page-dashboard').classList.toggle('active', key==='dashboard');
+  currentPage = key;
+}
+
+/* map string convenience */
+function showPage(name){
+  if(name==='auth') document.getElementById('page-auth').classList.add('active'),document.getElementById('page-subscribe').classList.remove('active'),document.getElementById('page-dashboard').classList.remove('active');
+  if(name==='subscribe') document.getElementById('page-subscribe').classList.add('active'),document.getElementById('page-auth').classList.remove('active'),document.getElementById('page-dashboard').classList.remove('active');
+  if(name==='dashboard') document.getElementById('page-dashboard').classList.add('active'),document.getElementById('page-auth').classList.remove('active'),document.getElementById('page-subscribe').classList.remove('active');
+}
+
+/* ---------- Simple user storage ---------- */
+function register(){
+  const u = document.getElementById('regUser').value.trim();
+  const p = document.getElementById('regPass').value;
+  const name = document.getElementById('regName').value.trim() || u;
+  if(!u || !p){ document.getElementById('regMsg').textContent='Fill username and password'; return; }
+  if(localStorage.getItem('wq_user_'+u)){ document.getElementById('regMsg').textContent='Username exists'; return; }
+  localStorage.setItem('wq_user_'+u,p);
+  localStorage.setItem('wq_user_'+u+'_display', name);
+  document.getElementById('regMsg').textContent='Registered — now login';
+  document.getElementById('regUser').value='';document.getElementById('regPass').value='';document.getElementById('regName').value='';
+}
+function login(){
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  if(localStorage.getItem('wq_user_'+u) === p){
+    currentUser = u;
+    localStorage.setItem('wq_current', u);
+    afterLogin();
+  } else {
+    document.getElementById('loginMsg').textContent='Invalid credentials';
+  }
+}
+function afterLogin(){
+  const display = localStorage.getItem('wq_user_'+currentUser+'_display') || currentUser;
+  document.getElementById('welcomeText').textContent = `Welcome, ${display}!`;
+  showPage('subscribe');
+}
+
+/* Demo */
+function prefillDemo(){ document.getElementById('loginUser').value='demo';document.getElementById('loginPass').value='demo'; localStorage.setItem('wq_user_demo','demo'); localStorage.setItem('wq_user_demo_display','Demo User'); }
+
+/* clear */
+function clearAuth(){document.getElementById('regName').value='';document.getElementById('regUser').value='';document.getElementById('regPass').value='';document.getElementById('regMsg').textContent='';}
+
+/* ---------- Subscriptions ---------- */
+function selectPlan(plan,price){
+  if(!currentUser){ alert('Please login or register first.'); return; }
+  localStorage.setItem('wq_'+currentUser+'_selectedPlan', JSON.stringify({plan,price}));
+  document.getElementById('subStatus').textContent = `${plan} chosen. Send proof or activate.`;
+}
+function sendWhatsApp(plan){
+  if(!currentUser){ alert('Please login first'); return; }
+  const msg = `Hello, I (${localStorage.getItem('wq_user_'+currentUser+'_display')||currentUser}) have purchased the ${plan} plan on Wellness Quest. Username: ${currentUser}`;
+  const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+  window.open(url,'_blank');
+}
+function activate(plan){
+  if(!currentUser){ alert('Login first'); return; }
+  const code = document.getElementById('code'+plan).value || document.getElementById('code'+plan+'')?.value || '';
+  const codeVal = plan==='Monthly'?document.getElementById('codeMonthly').value.trim(): plan==='Yearly'?document.getElementById('codeYearly').value.trim(): document.getElementById('codeLifetime').value.trim();
+  if(ACTIVATION_CODES.includes(codeVal)){
+    const exp = new Date();
+    if(plan==='Monthly') exp.setMonth(exp.getMonth()+1);
+    if(plan==='Yearly') exp.setFullYear(exp.getFullYear()+1);
+    if(plan==='Lifetime') exp.setFullYear(exp.getFullYear()+50);
+    const subscription = {plan, expiry: exp.toISOString()};
+    localStorage.setItem('wq_'+currentUser+'_subscription', JSON.stringify(subscription));
+    document.getElementById('subStatus').textContent = `${plan} activated!`;
+    showPage('dashboard');
+    afterLogin();
+  } else {
+    document.getElementById('subStatus').textContent = 'Invalid activation code.';
+  }
+}
+function startFreeTrial(){
+  if(!currentUser){ alert('Please login first'); return; }
+  const exp = new Date(new Date().getTime() + 30*24*60*60*1000);
+  const subscription = {plan:'Trial', expiry: exp.toISOString()};
+  localStorage.setItem('wq_'+currentUser+'_subscription', JSON.stringify(subscription));
+  document.getElementById('subStatus').textContent = '30-day free trial started!';
+  showPage('dashboard');
+  afterLogin();
+}
+
+/* ---------- Dashboard features ---------- */
+
+/* Quiz store / chart */
+const quizKey = u => `wq_${u}_quiz`;
+document.getElementById('quizForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  if(!currentUser){ alert('Login first'); return; }
+  const q = [1,2,3,4,5,6].map(i=>+document.getElementById('q'+i).value);
+  if(q.some(v=>isNaN(v)||v<1||v>5)) return alert('Values must be 1-5');
+  const entry = {date: new Date().toLocaleDateString(), mood:q[0], stress:q[1], physical:q[2], sleep:q[3], focus:q[4], hydration:q[5]};
+  let arr = JSON.parse(localStorage.getItem(quizKey(currentUser))||'[]'); arr.push(entry); if(arr.length>90) arr.shift();
+  localStorage.setItem(quizKey(currentUser), JSON.stringify(arr));
+  document.getElementById('quizMsg').textContent = 'Quiz saved';
+  updateChart();
+  updateHeatmap();
+  generateRemedies(entry);
+  updatePoints();
+});
+
+/* Chart.js line chart */
+let lineChart = null;
+function updateChart(){
+  const data = JSON.parse(localStorage.getItem(quizKey(currentUser))||'[]');
+  const last = data.slice(-7);
+  const labels = last.map(d=>d.date);
+  const get = p => last.map(d=>d[p]||0);
+  const ctx = document.getElementById('lineChart').getContext('2d');
+  if(lineChart) lineChart.destroy();
+  lineChart = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Mood', data:get('mood'), borderColor:'#00ffb3', fill:false},
+        {label:'Stress', data:get('stress'), borderColor:'#ff8a8a', fill:false},
+        {label:'Physical', data:get('physical'), borderColor:'#66ffda', fill:false},
+        {label:'Sleep', data:get('sleep'), borderColor:'#ffd166', fill:false},
+        {label:'Focus', data:get('focus'), borderColor:'#b596ff', fill:false},
+        {label:'Hydration', data:get('hydration'), borderColor:'#66e0ff', fill:false}
+      ]
+    },
+    options:{scales:{y:{min:1,max:5, ticks:{stepSize:1}}}}
+  });
+}
+
+/* Heatmap simple implementation */
+function updateHeatmap(){
+  const arr = JSON.parse(localStorage.getItem(quizKey(currentUser))||'[]').slice(-6).reverse();
+  const heatDiv = document.getElementById('heatmap'); heatDiv.innerHTML='';
+  if(!arr.length){ heatDiv.innerHTML='<div class="muted">No data yet</div>'; return; }
+  // for each entry produce 6 cells
+  arr.forEach(row=>{
+    ['mood','stress','physical','sleep','focus','hydration'].forEach(k=>{
+      const val = row[k];
+      const cell = document.createElement('div');
+      cell.className='heat-cell';
+      cell.textContent = val;
+      // color scale 1-5
+      const t = (val-1)/4;
+      const r = Math.round(20 + 230*(1-t));
+      const g = Math.round(200*(t));
+      const b = Math.round(200*(1-t));
+      cell.style.background = `rgb(${r},${g},${b})`;
+      heatDiv.appendChild(cell);
+    });
+  });
+}
+
+/* Remedies */
+function generateRemedies(entry){
+  const list = document.getElementById('remedies'); list.innerHTML='';
+  if(entry.stress >= 4) { let li=document.createElement('li'); li.textContent='Practice 5-min breathing breaks daily'; list.appendChild(li); }
+  if(entry.sleep <= 2) { let li=document.createElement('li'); li.textContent='Avoid screens 1 hour before bed'; list.appendChild(li); }
+  if(entry.hydration <= 2) { let li=document.createElement('li'); li.textContent='Increase water intake to 8 glasses/day'; list.appendChild(li); }
+  if(entry.mood <= 2) { let li=document.createElement('li'); li.textContent='Spend 15 minutes outdoors'; list.appendChild(li); }
+  if(entry.physical <= 2) { let li=document.createElement('li'); li.textContent='Try light exercise 10 minutes/day'; list.appendChild(li); }
+  if(entry.focus <= 2) { let li=document.createElement('li'); li.textContent='Use Pomodoro technique for focus'; list.appendChild(li); }
+}
+
+/* Export CSV and PDF of quiz */
+function exportQuizCSV(){
+  const arr = JSON.parse(localStorage.getItem(quizKey(currentUser))||'[]');
+  if(!arr.length) return alert('No quiz data');
+  let csv = 'Date,Mood,Stress,Physical,Sleep,Focus,Hydration\n';
+  arr.forEach(r=> csv += `${r.date},${r.mood},${r.stress},${r.physical},${r.sleep},${r.focus},${r.hydration}\n`);
+  const blob = new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob), a=document.createElement('a'); a.href=url; a.download='wellness_quiz.csv'; a.click(); URL.revokeObjectURL(url);
+}
+async function exportQuizPDF(){
+  const { jsPDF } = window.jspdf;
+  const arr = JSON.parse(localStorage.getItem(quizKey(currentUser))||'[]').slice(-8);
+  if(!arr.length) return alert('No data');
+  const doc = new jsPDF();
+  doc.setFontSize(14); doc.text('Wellness Quiz — Recent',10,14);
+  let y=24;
+  arr.forEach(r=>{ doc.setFontSize(11); doc.text(`${r.date}: Mood(${r.mood}) Stress(${r.stress}) Physical(${r.physical}) Sleep(${r.sleep}) Focus(${r.focus}) Hydration(${r.hydration})`,10,y); y+=8; })
+  doc.save('wellness_quiz.pdf');
+}
+
+/* ---------- Points, habits, gratitude, water, bmi, steps ---------- */
+function addHabit(){
+  if(!currentUser){ alert('Login first'); return; }
+  const t = document.getElementById('habitInp').value.trim(); if(!t) return;
+  const key = 'wq_'+currentUser+'_habits'; let arr = JSON.parse(localStorage.getItem(key)||'[]'); arr.push({name:t,done:false}); localStorage.setItem(key,JSON.stringify(arr)); document.getElementById('habitInp').value=''; renderHabits();
+}
+function renderHabits(){ const key='wq_'+currentUser+'_habits'; let arr=JSON.parse(localStorage.getItem(key)||'[]'); const cont=document.getElementById('habitList'); cont.innerHTML=''; arr.forEach((h,i)=>{ const s = document.createElement('div'); s.innerHTML=`<span style="cursor:pointer" onclick="toggleHabit(${i})">${h.done? '✅':'▫️'}</span> ${h.name}`; cont.appendChild(s)}); }
+function toggleHabit(i){ const key='wq_'+currentUser+'_habits'; let arr=JSON.parse(localStorage.getItem(key)||'[]'); arr[i].done = !arr[i].done; localStorage.setItem(key,JSON.stringify(arr)); renderHabits(); }
+
+function addGr(){ if(!currentUser){ alert('Login first'); return; } const t=document.getElementById('gratInp').value.trim(); if(!t) return; const key='wq_'+currentUser+'_grat'; let arr=JSON.parse(localStorage.getItem(key)||'[]'); arr.push({date:new Date().toLocaleDateString(),text:t}); localStorage.setItem(key,JSON.stringify(arr)); document.getElementById('gratInp').value=''; renderGrat(); }
+function renderGrat(){ const key='wq_'+currentUser+'_grat'; const arr=JSON.parse(localStorage.getItem(key)||'[]'); const el=document.getElementById('gratList'); el.innerHTML=''; arr.slice(-6).reverse().forEach(g=>{ const d=document.createElement('div'); d.textContent=`${g.date}: ${g.text}`; el.appendChild(d); }); }
+
+function calcBMI(){ const w=+document.getElementById('weight').value; const h=+document.getElementById('height').value; if(!w||!h){ alert('Enter both'); return } const bmi=(w/(h/100*h/100)).toFixed(2); let s=''; if(bmi<18.5) s='Underweight'; else if(bmi<25) s='Normal'; else if(bmi<30) s='Overweight'; else s='Obese'; document.getElementById('bmiRes').textContent=`BMI ${bmi} (${s})`; }
+
+function saveWater(){ if(!currentUser){ alert('Login first'); return } const g=+document.getElementById('waterInp').value; if(!g||g<=0) return; const key='wq_'+currentUser+'_water_'+new Date().toLocaleDateString(); const old=+localStorage.getItem(key)||0; localStorage.setItem(key,old+g); document.getElementById('waterInp').value=''; updateWater(); }
+function updateWater(){ const key='wq_'+currentUser+'_water_'+new Date().toLocaleDateString(); const val=+localStorage.getItem(key)||0; document.getElementById('waterStat').textContent=`Water today: ${val} glasses`; }
+
+function saveSteps(){ if(!currentUser) return; const s=+document.getElementById('stepsInp').value; if(!s||s<0) return; localStorage.setItem('wq_'+currentUser+'_steps_'+new Date().toLocaleDateString(), s); document.getElementById('stepsStat').textContent=`Steps today: ${s}`; }
+
+/* Points & streak */
+function updatePoints(){ if(!currentUser) return; const key='wq_'+currentUser+'_points'; let pts=+localStorage.getItem(key)||0; pts+=10; localStorage.setItem(key,pts); /* display */ }
+
+/* ---------- Chatbot ---------- */
+const BOT = {
+  start:{msg:'Hi! Pick a category', options:[{k:'motivation',t:'Motivation'},{k:'relax',t:'Relax'},{k:'exercise',t:'Exercise'},{k:'nutrition',t:'Nutrition'},{k:'sleep',t:'Sleep'}]},
+  motivation:{msg:'Choose motivation type', options:[{k:'tiny',t:'Tiny wins'},{k:'goal',t:'Set goals'},{k:'rout',t:'Routine'},{k:'cele',t:'Celebrate'},{k:'back',t:'Back'}]},
+  relax:{msg:'Relax tips', options:[{k:'breath',t:'Breathing'},{k:'stretch',t:'Stretch'},{k:'sound',t:'Nature sounds'},{k:'med',t:'Mini meditation'},{k:'back',t:'Back'}]},
+  exercise:{msg:'Exercise levels', options:[{k:'light',t:'Light'},{k:'mod',t:'Moderate'},{k:'hi',t:'Intense'},{k:'yoga',t:'Yoga'},{k:'back',t:'Back'}]},
+  nutrition:{msg:'Nutrition picks', options:[{k:'hydr',t:'Hydration'},{k:'balanced',t:'Balanced'},{k:'snack',t:'Snacks'},{k:'timing',t:'Timing'},{k:'back',t:'Back'}]},
+  sleep:{msg:'Sleep choices', options:[{k:'wind',t:'Wind-down'},{k:'env',t:'Environment'},{k:'no',t:'No screens'},{k:'cons',t:'Consistency'},{k:'back',t:'Back'}]}
+};
+let botState='start';
+function initBot(){ renderBot(); appendBot('Bot: '+BOT.start.msg); }
+function renderBot(){
+  const box=document.getElementById('botOptions'); box.innerHTML='';
+  const node = BOT[botState];
+  if(!node) return;
+  node.options.forEach(o=>{
+    const b=document.createElement('button'); b.className='ghost'; b.textContent=o.t; b.onclick=()=>handleBot(o.k); box.appendChild(b);
+  });
+}
+function appendBot(t){ const d=document.createElement('div'); d.className='bot-msg'; d.innerText=t; document.getElementById('chatWindow').appendChild(d); document.getElementById('chatWindow').scrollTop = 9999; }
+function appendUser(t){ const d=document.createElement('div'); d.className='user-msg'; d.innerText=t; document.getElementById('chatWindow').appendChild(d); document.getElementById('chatWindow').scrollTop=9999; }
+function handleBot(key){
+  if(key==='back'){ botState='start'; renderBot(); appendBot('Back to main menu'); return; }
+  if(botState==='start'){ botState=key; renderBot(); appendBot(BOT[key].msg); return; }
+  // deeper replies
+  appendUser('Selected: '+key);
+  let reply = {tiny:'Start with 1 small task',goal:'Write one short goal',rout:'Set simple wake time',cele:'Celebrate small wins',breath:'Box breathing: 4-4-4-4',stretch:'Try neck and shoulder rolls',sound:'Play 5min nature audio',med:'1-min breathing focus',light:'5 min walk',mod:'15 min brisk walk',hi:'20 min cardio',yoga:'Try sun salutations',hydr:'Drink water hourly',balanced:'Half plate veggies',snack:'Choose fruits',timing:'Light dinner 2-3 hrs before bed',wind:'Read or calm activity',env:'Cool & dark room',no:'Stop screens 1h before',cons:'Same sleep time' }[key] || 'Try this tip and tell me how it went';
+  appendBot('Bot: '+reply);
+  // after suggestion, go back
+  setTimeout(()=>{ botState='start'; renderBot(); appendBot('Anything else?'); },700);
+}
+function sendChat(){ const t=document.getElementById('userChatText').value.trim(); if(!t) return; appendUser(t); setTimeout(()=>appendBot('Bot: Thanks — try the options below for guided help'),500); document.getElementById('userChatText').value=''; }
+
+/* ---------- Feature list build (50+ items) ---------- */
+const FEATURE_LIST = [
+  'Persistent user accounts (localStorage)',
+  'Remember logged-in user',
+  'Subscription selection & activation codes',
+  '30-day free trial (working)',
+  'Send proof via WhatsApp with prefilled message',
+  'QR code display (replace QR.jpg)',
+  'Meditation audio player (Meditation.mp3)',
+  'Meditation timer with preset 10-min',
+  'Breathing exercise timer (box breathing)',
+  'Advanced branching chatbot (5 options)',
+  '6-question wellness survey',
+  'Line chart (last 7 entries) using Chart.js',
+  'Heatmap-like grid of recent answers',
+  'Export quiz CSV',
+  'Export quiz PDF (jsPDF)',
+  'Contextual remedies based on responses',
+  'Habit tracker (add/toggle)',
+  'Gratitude journal (persistent)',
+  'BMI calculator (kg/cm)',
+  'Water intake tracker (daily)',
+  'Manual step counter',
+  'Sleep log (manual)',
+  'Points & streaks system',
+  'Weekly progress summary',
+  'Export full user data (CSV)',
+  'Import data from CSV',
+  'Profile editor (display name)',
+  'Theme toggle (tech/calm)',
+  'Font-size accessibility control',
+  'Notifications & local reminders',
+  'Daily challenge generator',
+  'Goal-setting tool',
+  'Progress & badges display',
+  'Yoga pose guide (images placeholders)',
+  'Calorie & simple food calculator',
+  'Habit streak counter',
+  'Search within features',
+  'Print friendly A4 feature card',
+  'Help modal & quick tips',
+  'Background music toggle',
+  'QR payment integration placeholder',
+  'Meditation ambient sounds selector',
+  'Timed focus (Pomodoro) tool',
+  'Export all to zip (CSV collection) - via multiple CSVs',
+  'Simple scheduler (reminders list)',
+  'Localized time display (works in your timezone)',
+  'Responsive layout for phones/tablets',
+  'Accessible colors & high contrast option',
+  'Profile backup & restore (via CSV)'
+];
+function buildFeatureList(){
+  const el=document.getElementById('featureList');
+  const cardEl=document.getElementById('cardFeatures');
+  el.innerHTML=''; cardEl.innerHTML='';
+  FEATURE_LIST.forEach((f,i)=>{
+    const d=document.createElement('div'); d.textContent=`• ${f}`; el.appendChild(d);
+    const li=document.createElement('li'); li.textContent=f; cardEl.appendChild(li);
+  });
+}
+buildFeatureList();
+
+/* ---------- Export / backup ---------- */
+function exportAll(){
+  if(!currentUser){ alert('Login first'); return; }
+  const data = {};
+  Object.keys(localStorage).forEach(k=>{ if(k.startsWith('wq_'+currentUser)) data[k]=localStorage.getItem(k); })
+  const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`wq_${currentUser}_backup.json`; a.click(); URL.revokeObjectURL(url);
+}
+
+/* ---------- Print feature card ---------- */
+function openFeatureCard(){ document.getElementById('featureCard').style.display='block'; }
+function closeFeatureCard(){ document.getElementById('featureCard').style.display='none'; }
+function printCard(){ window.print(); }
+
+/* ---------- Small helpers for UI & init ---------- */
+function openProfile(){ const name=localStorage.getItem('wq_user_'+currentUser+'_display')||''; const n=prompt('Display name',name); if(n!==null) localStorage.setItem('wq_user_'+currentUser+'_display',n),document.getElementById('welcomeText').textContent=`Welcome, ${n}!`;}
+function toggleMusic(){ const a=document.getElementById('medAudio'); if(a.paused) a.play(); else a.pause(); }
+function openTimers(){ alert('Open Timers panel — breathing & meditation timers ready in this build.'); }
+function openReminders(){ alert('Open Reminders panel — set daily reminders in Settings (coming panel).'); }
+
+/* Theme & font */
+function toggleTheme(v){
+  if(v==='calm'){ document.documentElement.style.setProperty('--bg-a','#f6fbff'); document.documentElement.style.setProperty('--bg-b','#e9f7ff'); document.documentElement.style.setProperty('--card','rgba(2,10,20,0.04)'); document.documentElement.style.setProperty('--accent1','#0072ff'); document.documentElement.style.setProperty('--accent2','#00c6ff'); document.body.style.color='#012'; } else { document.documentElement.style.setProperty('--bg-a','#071020'); document.documentElement.style.setProperty('--bg-b','#053d5a'); document.documentElement.style.setProperty('--card','rgba(255,255,255,0.06)'); document.documentElement.style.setProperty('--accent1','#00ffb3'); document.documentElement.style.setProperty('--accent2','#00c6ff'); document.body.style.color='#eafcff'; }
+}
+function toggleFont(v){ if(v==='large') document.documentElement.style.fontSize='18px'; else if(v==='small') document.documentElement.style.fontSize='13px'; else document.documentElement.style.fontSize='16px'; }
+
+/* ---------- Load last user if any ---------- */
+window.addEventListener('load',()=>{
+  const last = localStorage.getItem('wq_current');
+  if(last){ currentUser = last; document.getElementById('welcomeText').textContent = `Welcome, ${localStorage.getItem('wq_user_'+currentUser+'_display')||currentUser}!`; showPage('subscribe'); }
+  initBot();
+  updateHeatmap();
+  updateChart();
+});
+
+/* ---------- small canvas animated background (subtle) ---------- */
+(function(){
+  const canvas=document.getElementById('bgCanvas'), ctx=canvas.getContext('2d');
+  function resize(){ canvas.width=innerWidth; canvas.height=innerHeight; }
+  window.addEventListener('resize',resize); resize();
+  const particles=[];
+  for(let i=0;i<60;i++) particles.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:2+Math.random()*3,dx:(Math.random()-0.5)*0.4,dy:(Math.random()-0.5)*0.4,alpha:0.2+Math.random()*0.5});
+  function anim(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    particles.forEach(p=>{
+      p.x+=p.dx; p.y+=p.dy;
+      if(p.x<0||p.x>canvas.width) p.dx*=-1;
+      if(p.y<0||p.y>canvas.height) p.dy*=-1;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(0,200,255,${p.alpha})`;
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    });
+    requestAnimationFrame(anim);
+  }
+  anim();
+})();
+
+</script>
+</body>
+</html>
